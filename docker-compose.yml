@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: festbot
+      POSTGRES_PASSWORD: festbot
+      POSTGRES_DB: festbot
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U festbot"]
+      interval: 2s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"] # очереди переживут рестарт
+    volumes: [redisdata:/data]
+    ports: ["6379:6379"]
+
+  migrate:
+    build: .
+    entrypoint: ["/app/migrate", "up"]
+    env_file: .env
+    environment: &db
+      DATABASE_URL: postgres://festbot:festbot@postgres:5432/festbot?sslmode=disable
+      REDIS_ADDR: redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  bot:
+    build: .
+    entrypoint: ["/app/bot"]
+    env_file: .env
+    environment: *db
+    ports: ["8080:8080"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  worker:
+    build: .
+    entrypoint: ["/app/worker"]
+    env_file: .env
+    environment: *db
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+    restart: unless-stopped
+
+  admin:
+    build: .
+    entrypoint: ["/app/admin"]
+    env_file: .env
+    environment: *db
+    ports: ["8081:8081"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  # Веб-интерфейс очередей: что в работе, что упало, ретраи.
+  asynqmon:
+    image: hibiken/asynqmon:latest
+    command: ["--redis-addr=redis:6379"]
+    ports: ["8082:8080"]
+    depends_on: [redis]
+
+volumes:
+  pgdata:
+  redisdata:
