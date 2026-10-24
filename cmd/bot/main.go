@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,11 +14,13 @@ import (
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go/v2"
 	"github.com/max-messenger/max-bot-api-client-go/v2/model"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/tgenchik/festbot/internal/bot"
 	"github.com/tgenchik/festbot/internal/campaign"
 	"github.com/tgenchik/festbot/internal/clock"
 	"github.com/tgenchik/festbot/internal/config"
+	"github.com/tgenchik/festbot/internal/devchat"
 	"github.com/tgenchik/festbot/internal/entries"
 	"github.com/tgenchik/festbot/internal/messenger"
 	"github.com/tgenchik/festbot/internal/prizes"
@@ -52,26 +55,45 @@ func run(log *slog.Logger) error {
 	}
 	defer db.Close()
 
-	api, err := maxbot.NewApi(cfg.BotToken)
-	if err != nil {
-		return err
+	var (
+		api     *maxbot.Api
+		sender  messenger.Sender
+		checker bot.MembershipChecker
+		store   *devchat.Store
+	)
+	if cfg.DevMode {
+		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
+		defer rdb.Close()
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			return fmt.Errorf("redis: %w", err)
+		}
+		store = devchat.NewStore(rdb)
+		sender, checker = devchat.NewMessenger(store), devchat.NewChecker(store)
+	} else {
+		if api, err = maxbot.NewApi(cfg.BotToken); err != nil {
+			return err
+		}
+		sender, checker = messenger.New(api), subscription.NewChecker(api.Chats)
 	}
 
 	b := bot.New(bot.Deps{
 		Log:             log,
-		Messenger:       messenger.New(api),
+		Messenger:       sender,
 		Clock:           clock.New(cfg.Location),
 		Users:           users.NewRepo(db),
 		Campaign:        campaign.NewRepo(db),
 		Promo:           promo.NewService(db),
 		Entries:         entries.NewService(db, cfg.MaxChances),
-		Subscription:    subscription.NewChecker(api.Chats),
+		Subscription:    checker,
 		Prizes:          prizes.NewService(db, cfg.ClaimTTL),
 		WelcomeImageURL: cfg.WelcomeImageURL,
 		RulesURL:        cfg.RulesURL,
 		FinalPrize:      cfg.FinalPrize,
 	})
 
+	if cfg.DevMode {
+		return serveDev(ctx, log, cfg, db, store, b)
+	}
 	if cfg.WebhookURL == "" {
 		log.Info("starting in long polling mode")
 		return poll(ctx, log, api, b)

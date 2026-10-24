@@ -24,6 +24,14 @@ type Message struct {
 	Keyboard [][]Button `json:"keyboard,omitempty"`
 }
 
+// Sender — то, чем бот и воркер отправляют сообщения. Реализации: Client (MAX)
+// и devchat.Messenger (локальный чат в браузере для разработки).
+type Sender interface {
+	Send(ctx context.Context, userID int64, m Message) error
+	Replace(ctx context.Context, callbackID string, m Message) error
+	Toast(ctx context.Context, callbackID, text string) error
+}
+
 type Client struct{ api *maxbot.Api }
 
 func New(api *maxbot.Api) *Client { return &Client{api: api} }

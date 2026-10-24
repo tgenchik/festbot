@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>festbot: локальный чат</title>
+<style>
+:root {
+  --page: #eef0f6; --surface: #ffffff; --ink: #1c1f2e; --muted: #5e6478; --line: #d5d9e5;
+  --accent: #4b3fd8; --accent-ink: #ffffff; --accent-soft: #e7e5fb; --bubble: #ffffff;
+  --ok: #1d7a4f; --bad: #b3261e;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #12131b; --surface: #1b1d29; --ink: #e8eaf2; --muted: #9aa0b4; --line: #2c3042;
+    --accent: #8c82ff; --accent-ink: #12131b; --accent-soft: #2a2752; --bubble: #22253a;
+    --ok: #5fd39a; --bad: #ff8a80;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--page); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  display: grid; grid-template-columns: 320px 1fr; height: 100vh;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Панель слева */
+.rail { background: var(--surface); border-right: 1px solid var(--line); padding: 20px; overflow-y: auto; }
+.rail h1 { font-size: 18px; margin: 0 0 4px; font-weight: 650; }
+.rail .hint { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.rail h2 { font-size: 14px; font-weight: 600; margin: 24px 0 10px; }
+.bands { display: flex; flex-wrap: wrap; gap: 8px; }
+.band {
+  display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px;
+  border: 1px solid var(--line); border-radius: 999px; background: transparent; font-size: 14px;
+}
+.band .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.band[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.band.add { color: var(--muted); padding-left: 12px; }
+.toggle { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 14px; }
+.toggle input { margin-top: 3px; accent-color: var(--accent); }
+.toggle small { display: block; color: var(--muted); font-size: 12px; }
+.steps { display: grid; gap: 8px; }
+.step {
+  text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: transparent;
+}
+.step:hover { border-color: var(--accent); }
+.step small { display: block; color: var(--muted); font-size: 12px; }
+.step.danger { color: var(--bad); }
+.log { list-style: none; padding: 0; margin: 12px 0 0; font-size: 13px; display: grid; gap: 6px; }
+.log li { border-left: 3px solid var(--ok); padding: 2px 0 2px 8px; }
+.log li.bad { border-color: var(--bad); }
+
+/* Чат */
+.chat { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; min-width: 0; }
+.chat header {
+  display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.chat header .who { font-weight: 600; }
+.chat header .meta { color: var(--muted); font-size: 13px; }
+.chat header button { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 13px; }
+.feed { overflow-y: auto; padding: 20px; }
+.feed-inner { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 85%; }
+.msg.bot { align-self: flex-start; }
+.msg.user { align-self: flex-end; }
+.bubble { padding: 10px 14px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bot .bubble { background: var(--bubble); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.user .bubble { background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+.bubble img { display: block; max-width: 100%; border-radius: 10px; margin-bottom: 8px; }
+.kb { display: grid; gap: 6px; margin-top: 6px; }
+.kb-row { display: flex; gap: 6px; }
+.kb-row > * {
+  flex: 1; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--accent); text-align: center; text-decoration: none; font-size: 14px;
+}
+.kb-row > *:hover { border-color: var(--accent); }
+.toast { align-self: center; font-size: 12px; color: var(--muted); background: var(--surface);
+  border: 1px dashed var(--line); padding: 4px 12px; border-radius: 999px; }
+.empty { margin: 15vh auto 0; text-align: center; color: var(--muted); max-width: 320px; }
+.empty button { margin-top: 14px; }
+.composer { display: flex; gap: 8px; padding: 12px 20px; background: var(--surface); border-top: 1px solid var(--line); }
+.composer > div { display: flex; gap: 8px; max-width: 560px; width: 100%; margin: 0 auto; }
+.composer input { flex: 1; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--page); }
+.primary { padding: 10px 18px; border-radius: 999px; border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.error { color: var(--bad); font-size: 13px; text-align: center; padding: 6px; }
+
+@media (max-width: 760px) {
+  body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
+  .rail { border-right: 0; border-bottom: 1px solid var(--line); }
+  .chat { height: 85vh; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .msg, .toast { animation: in .18s ease-out; }
+  @keyframes in { from { opacity: 0; transform: translateY(4px); } }
+}
+</style>
+</head>
+<body>
+<aside class="rail">
+  <h1>Фестивальный бот</h1>
+  <p class="hint">Локальная копия чата MAX. Кнопки и тексты проходят через настоящий код бота, данные пишутся в базу.</p>
+
+  <h2>От чьего имени пишем</h2>
+  <div class="bands" id="bands"></div>
+  <label class="toggle">
+    <input type="checkbox" id="sub">
+    <span>Подписан на канал партнера<small>Так бот увидит подписку при «Проверить подписку» и при розыгрыше</small></span>
+  </label>
+
+  <h2>Сценарий</h2>
+  <div class="steps">
+    <button class="step" data-action="seed">Завести партнера на сегодня<small>Партнер дня, приз и 5 промокодов</small></button>
+    <button class="step" data-action="daily">Разыграть призы дня<small>Розыгрыш среди заявок за сегодня, сразу с подтверждением</small></button>
+    <button class="step" data-action="final">Разыграть главный приз<small>Финал по накопленным шансам; победителям придет анкета</small></button>
+    <button class="step danger" data-action="reset">Стереть все данные<small>Очистит базу и все чаты</small></button>
+  </div>
+  <ul class="log" id="log" aria-live="polite"></ul>
+</aside>
+
+<main class="chat">
+  <header>
+    <div>
+      <div class="who" id="who"></div>
+      <div class="meta" id="meta"></div>
+    </div>
+    <button id="clear">Очистить переписку</button>
+  </header>
+  <section class="feed" id="feed"><div class="feed-inner" id="feedInner"></div></section>
+  <form class="composer" id="composer">
+    <div>
+      <input id="text" autocomplete="off" placeholder="Сообщение боту" aria-label="Сообщение боту">
+      <button class="primary" type="submit">Отправить</button>
+    </div>
+  </form>
+</main>
+
+<script>
+const DEFAULT_USERS = [
+  { id: 1001, name: "Аня Смирнова" },
+  { id: 1002, name: "Борис Котов" },
+  { id: 1003, name: "Вера Ли" },
+];
+const COLORS = ["#e0573c", "#2f9e6e", "#3b6fd8", "#c48a12", "#a54bd1", "#d03f8a", "#1f9bb0"];
+
+function load(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+let users = load("festbot-dev-users", DEFAULT_USERS);
+let current = load("festbot-dev-current", users[0].id);
+if (!users.some(u => u.id === current)) current = users[0].id;
+let version = -1;
+
+const $ = id => document.getElementById(id);
+const user = () => users.find(u => u.id === current);
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+  return res.json();
+}
+const as = extra => ({ user: current, name: user().name, ...extra });
+
+function renderBands() {
+  const box = $("bands");
+  box.replaceChildren();
+  users.forEach((u, i) => {
+    const b = document.createElement("button");
+    b.className = "band";
+    b.setAttribute("aria-pressed", u.id === current);
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = COLORS[i % COLORS.length];
+    b.append(dot, u.name);
+    b.onclick = () => switchUser(u.id);
+    box.append(b);
+  });
+  const add = document.createElement("button");
+  add.className = "band add";
+  add.textContent = "Добавить участника";
+  add.onclick = () => {
+    const name = prompt("Имя и фамилия участника");
+    if (!name || !name.trim()) return;
+    const id = Math.max(...users.map(u => u.id)) + 1;
+    users.push({ id, name: name.trim() });
+    save("festbot-dev-users", users);
+    switchUser(id);
+  };
+  box.append(add);
+  $("who").textContent = user().name;
+}
+
+function switchUser(id) {
+  current = id;
+  save("festbot-dev-current", id);
+  version = -1;
+  renderBands();
+  refresh();
+}
+
+function renderFeed(messages) {
+  const feed = $("feedInner");
+  feed.replaceChildren();
+  if (messages.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    const p = document.createElement("p");
+    p.textContent = `Переписки с ботом пока нет. Открой его от имени: ${user().name}.`;
+    const start = document.createElement("button");
+    start.className = "primary";
+    start.textContent = "Начать";
+    start.onclick = () => send(() => api("/dev/api/start", as({})));
+    empty.append(p, start);
+    feed.append(empty);
+    return;
+  }
+  for (const m of messages) {
+    if (m.from === "toast") {
+      const t = document.createElement("div");
+      t.className = "toast";
+      t.textContent = m.text;
+      feed.append(t);
+      continue;
+    }
+    const wrap = document.createElement("div");
+    wrap.className = `msg ${m.from}`;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    if (m.image_url) {
+      const img = document.createElement("img");
+      img.src = m.image_url;
+      img.alt = "";
+      img.onerror = () => img.remove();
+      bubble.append(img);
+    }
+    bubble.append(m.text);
+    wrap.append(bubble);
+    if (m.keyboard && m.keyboard.length) {
+      const kb = document.createElement("div");
+      kb.className = "kb";
+      for (const row of m.keyboard) {
+        const r = document.createElement("div");
+        r.className = "kb-row";
+        for (const b of row) {
+          let el;
+          if (b.url) {
+            el = document.createElement("a");
+            el.href = b.url;
+            el.target = "_blank";
+            el.rel = "noopener";
+          } else {
+            el = document.createElement("button");
+            el.onclick = () => send(() => api("/dev/api/callback", as({ message_id: m.id, payload: b.payload })));
+          }
+          el.textContent = b.text;
+          r.append(el);
+        }
+        kb.append(r);
+      }
+      wrap.append(kb);
+    }
+    feed.append(wrap);
+  }
+  const scroller = $("feed");
+  scroller.scrollTop = scroller.scrollHeight;
+}
+
+async function refresh() {
+  try {
+    const data = await api(`/dev/api/chat?user=${current}`);
+    $("sub").checked = data.subscribed;
+    $("meta").textContent = `id ${current}, ${data.subscribed ? "подписан на партнера" : "не подписан на партнера"}`;
+    if (data.version !== version) {
+      version = data.version;
+      renderFeed(data.messages);
+    }
+  } catch (e) {
+    $("meta").textContent = `Нет связи с ботом: ${e.message}`;
+  }
+}
+
+async function send(fn) {
+  try { await fn(); } catch (e) { logResult(false, e.message); }
+  refresh();
+}
+
+function logResult(ok, text) {
+  const li = document.createElement("li");
+  if (!ok) li.className = "bad";
+  li.textContent = text;
+  $("log").prepend(li);
+}
+
+$("composer").onsubmit = e => {
+  e.preventDefault();
+  const input = $("text");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  send(() => api("/dev/api/text", as({ text })));
+};
+$("sub").onchange = e => send(() => api("/dev/api/subscribe", as({ on: e.target.checked })));
+$("clear").onclick = () => send(() => api("/dev/api/clear", as({})));
+document.querySelectorAll("[data-action]").forEach(btn => {
+  btn.onclick = async () => {
+    const name = btn.dataset.action;
+    if (name === "reset" && !confirm("Стереть базу и все чаты?")) return;
+    btn.disabled = true;
+    try {
+      const res = await api(`/dev/api/action/${name}`, {});
+      logResult(res.ok, res.message);
+    } catch (e) {
+      logResult(false, e.message);
+    } finally {
+      btn.disabled = false;
+      version = -1;
+      refresh();
+    }
+  };
+});
+
+renderBands();
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

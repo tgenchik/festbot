@@ -10,6 +10,10 @@ import (
 )
 
 type Config struct {
+	// DevMode — разработка без MAX: вместо мессенджера чат в браузере на BOT_ADDR,
+	// подписка на каналы переключается галочкой. Токен бота не нужен.
+	DevMode bool
+
 	BotToken      string
 	WebhookURL    string // пусто — бот работает через long polling (удобно локально)
 	WebhookSecret string
@@ -49,6 +53,8 @@ func Load() (Config, error) {
 	}
 
 	c := Config{
+		DevMode: env("DEV_MODE", "false") == "true",
+
 		BotToken:      os.Getenv("BOT_TOKEN"),
 		WebhookURL:    os.Getenv("WEBHOOK_URL"),
 		WebhookSecret: os.Getenv("WEBHOOK_SECRET"),
@@ -81,8 +87,8 @@ func Load() (Config, error) {
 
 // RequireBot проверяет настройки, без которых не стартуют бот и воркер.
 func (c Config) RequireBot() error {
-	if c.BotToken == "" {
-		return fmt.Errorf("BOT_TOKEN is required")
+	if c.BotToken == "" && !c.DevMode {
+		return fmt.Errorf("BOT_TOKEN is required (или DEV_MODE=true для локальной разработки)")
 	}
 	return nil
 }

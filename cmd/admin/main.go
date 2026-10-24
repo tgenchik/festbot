@@ -12,11 +12,13 @@ import (
 	"time"
 
 	maxbot "github.com/max-messenger/max-bot-api-client-go/v2"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/tgenchik/festbot/internal/admin"
 	"github.com/tgenchik/festbot/internal/broadcast"
 	"github.com/tgenchik/festbot/internal/campaign"
 	"github.com/tgenchik/festbot/internal/config"
+	"github.com/tgenchik/festbot/internal/devchat"
 	"github.com/tgenchik/festbot/internal/draws"
 	"github.com/tgenchik/festbot/internal/prizes"
 	"github.com/tgenchik/festbot/internal/promo"
@@ -51,9 +53,17 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer db.Close()
-	api, err := maxbot.NewApi(cfg.BotToken)
-	if err != nil {
-		return err
+	var checker draws.MembershipChecker
+	if cfg.DevMode {
+		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
+		defer rdb.Close()
+		checker = devchat.NewChecker(devchat.NewStore(rdb))
+	} else {
+		api, err := maxbot.NewApi(cfg.BotToken)
+		if err != nil {
+			return err
+		}
+		checker = subscription.NewChecker(api.Chats)
 	}
 
 	camp := campaign.NewRepo(db)
@@ -62,7 +72,7 @@ func run(log *slog.Logger) error {
 		DB:       db,
 		Campaign: camp,
 		Promo:    promo.NewService(db),
-		Draws: draws.NewService(db, camp, subscription.NewChecker(api.Chats), draws.Config{
+		Draws: draws.NewService(db, camp, checker, draws.Config{
 			MaxChances:          cfg.MaxChances,
 			FinalWinners:        cfg.FinalWinners,
 			FinalReserves:       cfg.FinalReserves,

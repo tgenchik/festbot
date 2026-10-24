@@ -17,20 +17,24 @@ import (
 	"github.com/tgenchik/festbot/internal/messenger"
 	"github.com/tgenchik/festbot/internal/prizes"
 	"github.com/tgenchik/festbot/internal/promo"
-	"github.com/tgenchik/festbot/internal/subscription"
 	"github.com/tgenchik/festbot/internal/texts"
 	"github.com/tgenchik/festbot/internal/users"
 )
 
+// MembershipChecker — проверка подписки на канал партнера.
+type MembershipChecker interface {
+	IsMember(ctx context.Context, channelID, userID int64) (bool, error)
+}
+
 type Deps struct {
 	Log          *slog.Logger
-	Messenger    *messenger.Client
+	Messenger    messenger.Sender
 	Clock        clock.Clock
 	Users        *users.Repo
 	Campaign     *campaign.Repo
 	Promo        *promo.Service
 	Entries      *entries.Service
-	Subscription *subscription.Checker
+	Subscription MembershipChecker
 	Prizes       *prizes.Service
 
 	WelcomeImageURL string

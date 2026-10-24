@@ -36,6 +36,7 @@ services:
     ports: ["8080:8080"]
     depends_on:
       migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
     restart: unless-stopped
 
   worker:
@@ -56,6 +57,7 @@ services:
     ports: ["8081:8081"]
     depends_on:
       migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
     restart: unless-stopped
 
   # Веб-интерфейс очередей: что в работе, что упало, ретраи.

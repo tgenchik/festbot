@@ -21,6 +21,7 @@ import (
 	"github.com/tgenchik/festbot/internal/campaign"
 	"github.com/tgenchik/festbot/internal/clock"
 	"github.com/tgenchik/festbot/internal/config"
+	"github.com/tgenchik/festbot/internal/devchat"
 	"github.com/tgenchik/festbot/internal/draws"
 	"github.com/tgenchik/festbot/internal/messenger"
 	"github.com/tgenchik/festbot/internal/outbox"
@@ -43,7 +44,7 @@ func main() {
 type worker struct {
 	log       *slog.Logger
 	client    *asynq.Client
-	msg       *messenger.Client
+	msg       messenger.Sender
 	limiter   *broadcast.Limiter
 	users     *users.Repo
 	campaign  *campaign.Repo
@@ -70,25 +71,37 @@ func run(log *slog.Logger) error {
 	}
 	defer db.Close()
 
-	api, err := maxbot.NewApi(cfg.BotToken)
-	if err != nil {
-		return err
-	}
 	redisOpt := asynq.RedisClientOpt{Addr: cfg.RedisAddr, Password: cfg.RedisPassword}
 	client := asynq.NewClient(redisOpt)
 	defer client.Close()
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
 	defer rdb.Close()
 
+	// В режиме разработки сообщения уходят в локальный чат, подписка — галочка на странице.
+	var (
+		sender  messenger.Sender
+		checker draws.MembershipChecker
+	)
+	if cfg.DevMode {
+		store := devchat.NewStore(rdb)
+		sender, checker = devchat.NewMessenger(store), devchat.NewChecker(store)
+	} else {
+		api, err := maxbot.NewApi(cfg.BotToken)
+		if err != nil {
+			return err
+		}
+		sender, checker = messenger.New(api), subscription.NewChecker(api.Chats)
+	}
+
 	camp := campaign.NewRepo(db)
 	w := &worker{
 		log:      log,
 		client:   client,
-		msg:      messenger.New(api),
+		msg:      sender,
 		limiter:  broadcast.NewLimiter(rdb, cfg.SendRatePerSec),
 		users:    users.NewRepo(db),
 		campaign: camp,
-		draws: draws.NewService(db, camp, subscription.NewChecker(api.Chats), draws.Config{
+		draws: draws.NewService(db, camp, checker, draws.Config{
 			MaxChances:          cfg.MaxChances,
 			FinalWinners:        cfg.FinalWinners,
 			FinalReserves:       cfg.FinalReserves,
